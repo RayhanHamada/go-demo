@@ -1,0 +1,329 @@
+basePath: /
+definitions:
+  handlers.CreateUserRequest:
+    properties:
+      display_name:
+        example: Ada Lovelace
+        maxLength: 100
+        minLength: 1
+        type: string
+      email:
+        example: ada@example.com
+        format: email
+        maxLength: 254
+        type: string
+    required:
+    - display_name
+    - email
+    type: object
+  handlers.ErrorResponse:
+    properties:
+      error:
+        example: 'email: must be a valid address'
+        type: string
+      field:
+        enum:
+        - id
+        - email
+        - display_name
+        - status
+        - limit
+        - offset
+        - request
+        example: email
+        type: string
+    type: object
+  handlers.HealthResponse:
+    properties:
+      cache:
+        enum:
+        - ok
+        - down
+        example: ok
+        type: string
+      db:
+        enum:
+        - ok
+        - down
+        example: ok
+        type: string
+      status:
+        enum:
+        - ok
+        - degraded
+        example: ok
+        type: string
+    type: object
+  handlers.ListUsersResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.UserResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 42
+        format: int64
+        type: integer
+    type: object
+  handlers.UpdateUserRequest:
+    properties:
+      display_name:
+        example: Ada, Countess of Lovelace
+        maxLength: 100
+        minLength: 1
+        type: string
+      status:
+        enum:
+        - active
+        - suspended
+        example: suspended
+        type: string
+    type: object
+  handlers.UserResponse:
+    properties:
+      created_at:
+        example: "2026-11-03T15:47:55.843263Z"
+        type: string
+      display_name:
+        example: Ada Lovelace
+        type: string
+      email:
+        example: ada@example.com
+        format: email
+        type: string
+      id:
+        example: 01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9
+        format: uuid
+        type: string
+      status:
+        enum:
+        - active
+        - suspended
+        example: active
+        type: string
+      updated_at:
+        example: "2026-11-03T15:47:55.843263Z"
+        type: string
+    type: object
+info:
+  contact: {}
+  description: |-
+    A user CRUD service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.
+
+    Identifiers are UUID v7, so they sort by creation time. Emails are normalised to lower case and unique. Reads are served through a cache that is invalidated on write.
+
+    Every response carries an `X-Request-ID` header: send your own to have it echoed, otherwise one is generated. Either way it appears in the server logs, so a failing request is traceable end to end.
+  license:
+    name: MIT
+  termsOfService: https://opensource.org/licenses/MIT
+  title: gin-clean-arch-demo
+  version: 1.0.0
+paths:
+  /healthz:
+    get:
+      description: 'Pings the database and the cache, reporting each separately so
+        a partial outage is visible. Intended as a readiness probe: 503 means traffic
+        should not be sent here.'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.HealthResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/handlers.HealthResponse'
+      summary: Report dependency health
+      tags:
+      - Health
+  /v1/users:
+    get:
+      description: Returns one page of users, newest first, plus the unpaged total.
+        The total reflects the same status filter as the page.
+      parameters:
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      - default: 0
+        description: Rows to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - description: Lifecycle state
+        enum:
+        - active
+        - suspended
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ListUsersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List users
+      tags:
+      - Users
+    post:
+      consumes:
+      - application/json
+      description: Creates an active user. The email is trimmed and lower-cased before
+        validation, so `Ada@Example.com` and `ada@example.com` collide.
+      parameters:
+      - description: User to create
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.CreateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              description: Canonical path of the created user
+              type: string
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create a user
+      tags:
+      - Users
+  /v1/users/{id}:
+    delete:
+      description: Removes the user and its cached copy. Deleting twice yields 404
+        for the second attempt.
+      parameters:
+      - description: User identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete a user
+      tags:
+      - Users
+    get:
+      description: Served from the cache when possible. A malformed identifier is
+        a client error (400), not a missing resource (404).
+      parameters:
+      - description: User identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Fetch a user
+      tags:
+      - Users
+    patch:
+      consumes:
+      - application/json
+      description: 'Partial update: only supplied fields change and `updated_at` moves
+        to the write time. An empty object is rejected. Email and identifier are immutable.'
+      parameters:
+      - description: User identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Fields to change
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.UpdateUserRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Update a user
+      tags:
+      - Users
+schemes:
+- http
+- https
+swagger: "2.0"

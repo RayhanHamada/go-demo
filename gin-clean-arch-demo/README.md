@@ -14,8 +14,12 @@ internal/adapter/sqlite/    GORM model (schema source of truth), store, reposito
 internal/adapter/cache/     Valkey/Redis implementation of the Cache port
 internal/adapter/httpapi/
   server.go                 Server struct, router, http.Server with timeouts
-  handlers.go               one handler per endpoint, request/response types
   middleware.go             request id + structured access log
+  handlers/
+    handlers.go             Handler struct + the service ports it needs
+    users.go                one handler per user endpoint, request/response types
+    health.go               readiness handler
+    errors.go              domain error → status code mapping
 internal/app/               composition root: build, run, graceful shutdown
 internal/config/            caarlos0/env loader with defaults and validation
 ```
@@ -68,6 +72,7 @@ owning a log line adds its own `layer` field, and requests carry `request_id`
 | Method | Path            | Description                          |
 | ------ | --------------- | ------------------------------------ |
 | GET    | `/healthz`      | DB + cache readiness (503 if down)   |
+| GET    | `/docs/index.html` | Interactive Swagger UI            |
 | POST   | `/v1/users`     | Create a user → 201 + `Location`     |
 | GET    | `/v1/users`     | List: `limit`, `offset`, `status`    |
 | GET    | `/v1/users/:id` | Fetch one (cache-backed)             |
@@ -76,6 +81,33 @@ owning a log line adds its own `layer` field, and requests carry `request_id`
 
 Errors are `{"error": "...", "field": "..."}` with 400 (validation),
 404 (missing), 409 (duplicate email), 500 (unexpected, logged server side).
+
+## API documentation
+
+Swagger UI is served at `/docs/index.html` and the generated document at
+`/docs/doc.json`. It is interactive: "Try it out" issues real requests.
+
+The specification is generated from annotations, so the handlers are the single
+source of truth: general metadata lives on `cmd/server/main.go`, and each
+handler in `internal/adapter/httpapi/handlers` carries `@Summary`, `@Param`,
+`@Success` and `@Failure`. Request and response schemas come from the Go types
+themselves, so a handler and its schema cannot drift apart.
+
+```sh
+make docs        # regenerate
+make docs-check  # fail if the committed spec is stale
+```
+
+`swag` is pinned in `go.mod` as a tool dependency, so the target needs no
+install and every checkout generates identical output. `make docs-check` is
+suitable for CI: it generates into a scratch directory, so a stale spec fails
+the build without touching the working copy. Commit the regenerated
+`internal/adapter/httpapi/docs` directory; the binary embeds it, so the docs
+work without a build step at deploy time.
+
+`swagger_test.go` fails when a route is added without annotations, when a
+documented operation no longer exists, or when a `$ref` does not resolve — so
+the docs cannot silently drift from the routes.
 
 ## Configuration
 

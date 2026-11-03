@@ -9,10 +9,7 @@ import (
 	"gin-clean-arch-demo/internal/logger"
 )
 
-const (
-	headerRequestID = "X-Request-ID"
-	contextLogKey   = "logger"
-)
+const headerRequestID = "X-Request-ID"
 
 // RequestID accepts an inbound X-Request-ID or mints one, echoes it back, and
 // puts it in the request context for correlation across layers.
@@ -42,7 +39,6 @@ func RequestLogger(base zerolog.Logger) gin.HandlerFunc {
 			Str("path", c.Request.URL.Path).
 			Logger()
 		c.Request = c.Request.WithContext(logger.WithLogger(c.Request.Context(), reqLog))
-		c.Set(contextLogKey, &reqLog)
 
 		c.Next()
 
@@ -68,15 +64,4 @@ func RequestLogger(base zerolog.Logger) gin.HandlerFunc {
 			Str("client_ip", c.ClientIP()).
 			Msg("http request")
 	}
-}
-
-// loggerFrom returns the request-scoped logger, falling back to the process
-// logger when the middleware did not run (direct handler tests).
-func loggerFrom(c *gin.Context) zerolog.Logger {
-	if v, ok := c.Get(contextLogKey); ok {
-		if l, ok := v.(*zerolog.Logger); ok {
-			return *l
-		}
-	}
-	return zerolog.Nop()
 }

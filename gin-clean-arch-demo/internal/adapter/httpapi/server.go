@@ -1,6 +1,7 @@
-// Package httpapi is the HTTP delivery layer: it owns routing, request
-// decoding, response encoding and the mapping from domain errors to status
-// codes. Application logic lives in the usecase package.
+// Package httpapi is the HTTP delivery layer: it owns routing, middleware and
+// the http.Server lifecycle. Request decoding, response encoding and the
+// mapping from domain errors to status codes live in the handlers package.
+// Application logic lives in the usecase package.
 package httpapi
 
 import (
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
+	"gin-clean-arch-demo/internal/adapter/httpapi/handlers"
 	"gin-clean-arch-demo/internal/domain"
 	"gin-clean-arch-demo/internal/usecase"
 )
@@ -29,20 +31,21 @@ type HealthChecker interface {
 	Ping(ctx context.Context) error
 }
 
-// Server holds everything the HTTP layer needs. Handlers are methods on it so
-// dependencies are explicit and testable.
+// Server holds the HTTP layer's collaborators: the router-facing handlers and
+// the process logger used by middleware.
 type Server struct {
-	users  UserService
-	db     HealthChecker
-	cache  HealthChecker
-	logger zerolog.Logger
+	handlers *handlers.Handler
+	logger   zerolog.Logger
 }
 
 // NewServer builds the HTTP layer.
 func NewServer(users UserService, db, cache HealthChecker, logger zerolog.Logger) *Server {
 	// The logger is kept unscoped: request-scoped lines add layer "http" and
 	// the usecase adds its own, so neither can inherit the other's identity.
-	return &Server{users: users, db: db, cache: cache, logger: logger}
+	return &Server{
+		handlers: handlers.New(users, db, cache, logger),
+		logger:   logger,
+	}
 }
 
 // Router returns the configured Gin engine.
@@ -50,15 +53,16 @@ func (s *Server) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(RequestID(), RequestLogger(s.logger), gin.Recovery())
 
-	r.GET("/healthz", s.health)
+	r.GET("/healthz", s.handlers.Health)
+	s.registerDocs(r)
 
 	v1 := r.Group("/v1")
 	{
-		v1.POST("/users", s.createUser)
-		v1.GET("/users", s.listUsers)
-		v1.GET("/users/:id", s.getUser)
-		v1.PATCH("/users/:id", s.updateUser)
-		v1.DELETE("/users/:id", s.deleteUser)
+		v1.POST("/users", s.handlers.CreateUser)
+		v1.GET("/users", s.handlers.ListUsers)
+		v1.GET("/users/:id", s.handlers.GetUser)
+		v1.PATCH("/users/:id", s.handlers.UpdateUser)
+		v1.DELETE("/users/:id", s.handlers.DeleteUser)
 	}
 	return r
 }

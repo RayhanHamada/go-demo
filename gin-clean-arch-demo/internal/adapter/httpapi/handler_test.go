@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 
 	"gin-clean-arch-demo/internal/adapter/cache"
@@ -24,7 +25,7 @@ type healthStub struct{ err error }
 func (h healthStub) Ping(context.Context) error { return h.err }
 
 // newRouter builds the full stack with an in-memory SQLite file and miniredis.
-func newRouter(t *testing.T, logs io.Writer) http.Handler {
+func newRouter(t *testing.T, logs io.Writer) *gin.Engine {
 	t.Helper()
 	ctx := context.Background()
 
