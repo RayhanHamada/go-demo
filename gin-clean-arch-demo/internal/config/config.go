@@ -4,11 +4,13 @@ package config
 import (
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v11"
+	"github.com/joho/godotenv"
 
 	"gin-clean-arch-demo/internal/logger"
 )
@@ -43,9 +45,20 @@ type Cache struct {
 	Timeout  time.Duration `env:"TIMEOUT" envDefault:"2s"`
 }
 
-// Parse reads the environment into a Config. Every invalid variable is
-// reported at once, named as the operator set it rather than as the Go field.
+// EnvFile is the file consulted by Parse when it exists. It is a development
+// convenience: variables already present in the process environment always
+// win, so container and CI settings are never overridden by a stray file.
+const EnvFile = ".env"
+
+// Parse reads .env (if present) and then the environment into a Config. Every
+// invalid variable is reported at once, named as the operator set it rather
+// than as the Go field.
 func Parse() (Config, error) {
+	// A missing .env is the normal production case, so it is not an error;
+	// a malformed one is.
+	if err := godotenv.Load(EnvFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return Config{}, fmt.Errorf("config: read %s: %w", EnvFile, err)
+	}
 	cfg, err := env.ParseAs[Config]()
 	if err != nil {
 		return Config{}, explain(err)

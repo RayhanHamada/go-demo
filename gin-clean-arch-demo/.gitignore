@@ -2,6 +2,11 @@
 data/
 bin/
 
+# Local environment (committed template lives in .env.example)
+.env
+.env.*
+!.env.example
+
 # Go
 *.test
 *.out

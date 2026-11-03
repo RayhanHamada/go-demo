@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +105,88 @@ func TestParseAggregatesErrors(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %v, want it to mention %s", err, want)
 		}
+	}
+}
+
+// unsetAfterTest removes variables that Parse picked up from a .env file:
+// godotenv writes straight to the process environment, so tests must undo it.
+func unsetAfterTest(t *testing.T, keys ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		for _, key := range keys {
+			os.Unsetenv(key)
+		}
+	})
+}
+
+func writeEnvFile(t *testing.T, content string) {
+	t.Helper()
+	if err := os.WriteFile(config.EnvFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("write %s: %v", config.EnvFile, err)
+	}
+}
+
+func TestParseReadsEnvFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	unsetAfterTest(t, "HTTP_ADDR", "CACHE_TTL", "LOG_LEVEL")
+	writeEnvFile(t, `
+# comment
+HTTP_ADDR=127.0.0.1:7777
+CACHE_TTL=45s
+LOG_LEVEL=warn
+`)
+
+	cfg, err := config.Parse()
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.HTTPAddr != "127.0.0.1:7777" {
+		t.Errorf("HTTPAddr = %q, want 127.0.0.1:7777", cfg.HTTPAddr)
+	}
+	if cfg.Cache.TTL != 45*time.Second {
+		t.Errorf("Cache.TTL = %v, want 45s", cfg.Cache.TTL)
+	}
+	if cfg.LogLevel != "warn" {
+		t.Errorf("LogLevel = %q, want warn", cfg.LogLevel)
+	}
+}
+
+// The process environment must win: that is what makes an exported variable
+// (or a container's environment) authoritative over a leftover file.
+func TestParseProcessEnvBeatsEnvFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	unsetAfterTest(t, "CACHE_TTL")
+	writeEnvFile(t, "CACHE_TTL=45s\n")
+	t.Setenv("CACHE_TTL", "90s")
+
+	cfg, err := config.Parse()
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if cfg.Cache.TTL != 90*time.Second {
+		t.Errorf("Cache.TTL = %v, want the environment's 90s", cfg.Cache.TTL)
+	}
+}
+
+// A missing .env is normal outside development and must not fail startup.
+func TestParseWithoutEnvFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	if _, err := config.Parse(); err != nil {
+		t.Fatalf("parse without .env: %v", err)
+	}
+}
+
+// A broken .env is a real mistake and should be reported, not ignored.
+func TestParseMalformedEnvFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	writeEnvFile(t, "this line has no equals sign\n")
+
+	_, err := config.Parse()
+	if err == nil {
+		t.Fatal("expected an error for a malformed .env")
+	}
+	if !strings.Contains(err.Error(), config.EnvFile) {
+		t.Errorf("error = %v, want it to name %s", err, config.EnvFile)
 	}
 }

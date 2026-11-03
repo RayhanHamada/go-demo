@@ -79,6 +79,18 @@ Errors are `{"error": "...", "field": "..."}` with 400 (validation),
 
 ## Configuration
 
+Configuration comes from the environment. For local work, copy the template:
+
+```sh
+cp .env.example .env
+```
+
+`config.Parse` reads `.env` when it exists and then the process environment;
+**exported variables win over the file**, so `CACHE_ADDR=localhost:6380 go run
+./cmd/server` overrides it and deployed environments need no file at all. The
+file is optional: if it is missing, startup proceeds with defaults. A malformed
+file is an error, not a silent skip.
+
 | Variable              | Default          | Meaning                              |
 | --------------------- | ---------------- | ------------------------------------ |
 | `HTTP_ADDR`           | `:8080`          | listen address                       |
@@ -99,9 +111,13 @@ Errors are `{"error": "...", "field": "..."}` with 400 (validation),
 ## Run
 
 ```sh
+cp .env.example .env      # optional; tweak addresses and log format
 docker compose up -d valkey
 go run ./cmd/server
 ```
+
+`go run` looks for `.env` in the working directory, so run it from the
+repository root.
 
 ```sh
 curl -sS localhost:8080/v1/users \
