@@ -1,0 +1,8 @@
+# Runtime data (SQLite database files)
+data/
+bin/
+
+# Go
+*.test
+*.out
+coverage.html
