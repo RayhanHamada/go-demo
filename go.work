@@ -1,3 +1,7 @@
 go 1.27.3
 
-use ./gin-clean-arch-demo
+use (
+	./concurrency-demo
+	./gin-clean-arch-demo
+	./playground
+)
