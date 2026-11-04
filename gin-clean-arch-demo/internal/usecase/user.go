@@ -4,7 +4,6 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -129,7 +128,7 @@ func (s *UserService) GetUser(ctx context.Context, rawID string) (UserView, erro
 	log = log.With().Str("user_id", id.String()).Logger()
 
 	key := cacheKey(id)
-	if view, ok := s.cachedUser(ctx, log, key); ok {
+	if view, ok := cacheRead[UserView](ctx, s.cache, s.ttl, log, key); ok {
 		log.Debug().Msg("user served from cache")
 		return view, nil
 	}
@@ -139,7 +138,7 @@ func (s *UserService) GetUser(ctx context.Context, rawID string) (UserView, erro
 		return UserView{}, err
 	}
 	view := NewUserView(u)
-	s.storeUser(ctx, log, key, view)
+	cacheWrite(ctx, s.cache, s.ttl, log, key, view)
 	log.Debug().Msg("user loaded from database")
 	return view, nil
 }
@@ -220,7 +219,7 @@ func (s *UserService) UpdateUser(ctx context.Context, rawID string, in UpdateUse
 	}
 	s.invalidate(ctx, log, id)
 	view := NewUserView(u)
-	s.storeUser(ctx, log, cacheKey(id), view)
+	cacheWrite(ctx, s.cache, s.ttl, log, cacheKey(id), view)
 	log.Info().Str("status", string(u.Status)).Msg("user updated")
 	return view, nil
 }
@@ -258,50 +257,6 @@ func (s *UserService) loggerFor(ctx context.Context, op string) zerolog.Logger {
 // served from stale JSON.
 func cacheKey(id domain.UserID) string { return "user:v1:" + id.String() }
 
-func (s *UserService) cachedUser(ctx context.Context, log zerolog.Logger, key string) (UserView, bool) {
-	if s.cache == nil || s.ttl <= 0 {
-		return UserView{}, false
-	}
-	raw, ok, err := s.cache.Get(ctx, key)
-	if err != nil {
-		log.Warn().Err(err).Str("cache_key", key).Msg("cache read failed; falling back to database")
-		return UserView{}, false
-	}
-	if !ok {
-		return UserView{}, false
-	}
-	var view UserView
-	if err := json.Unmarshal(raw, &view); err != nil {
-		log.Warn().Err(err).Str("cache_key", key).Msg("cache entry unreadable; evicting")
-		s.deleteKeys(ctx, log, key)
-		return UserView{}, false
-	}
-	return view, true
-}
-
-func (s *UserService) storeUser(ctx context.Context, log zerolog.Logger, key string, view UserView) {
-	if s.cache == nil || s.ttl <= 0 {
-		return
-	}
-	raw, err := json.Marshal(view)
-	if err != nil {
-		log.Error().Err(err).Str("cache_key", key).Msg("cache encode failed")
-		return
-	}
-	if err := s.cache.Set(ctx, key, raw, s.ttl); err != nil {
-		log.Warn().Err(err).Str("cache_key", key).Msg("cache write failed")
-	}
-}
-
 func (s *UserService) invalidate(ctx context.Context, log zerolog.Logger, id domain.UserID) {
-	s.deleteKeys(ctx, log, cacheKey(id))
-}
-
-func (s *UserService) deleteKeys(ctx context.Context, log zerolog.Logger, keys ...string) {
-	if s.cache == nil || s.ttl <= 0 {
-		return
-	}
-	if err := s.cache.Delete(ctx, keys...); err != nil {
-		log.Warn().Err(err).Strs("cache_keys", keys).Msg("cache delete failed")
-	}
+	deleteCacheKeys(ctx, s.cache, log, cacheKey(id))
 }

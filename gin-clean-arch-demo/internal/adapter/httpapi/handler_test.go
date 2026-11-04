@@ -43,8 +43,10 @@ func newRouter(t *testing.T, logs io.Writer) *gin.Engine {
 	t.Cleanup(func() { _ = cacheStore.Close() })
 
 	log := zerolog.New(logs)
-	svc := usecase.NewUserService(sqlite.NewUserRepository(store), cacheStore, log, 0)
-	return httpapi.NewServer(svc, store, cacheStore, log).Router()
+	userRepo := sqlite.NewUserRepository(store)
+	svc := usecase.NewUserService(userRepo, cacheStore, log, 0)
+	orders := usecase.NewOrderService(sqlite.NewOrderRepository(store), userRepo, cacheStore, log, 0)
+	return httpapi.NewServer(svc, orders, store, cacheStore, log).Router()
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -163,13 +165,13 @@ func TestHealthReportsDegradation(t *testing.T) {
 	log := zerolog.Nop()
 	svc := usecase.NewUserService(nil, nil, log, 0)
 
-	rec := do(t, httpapi.NewServer(svc, healthStub{}, healthStub{}, log).Router(), http.MethodGet, "/healthz", "")
+	rec := do(t, httpapi.NewServer(svc, nil, healthStub{}, healthStub{}, log).Router(), http.MethodGet, "/healthz", "")
 	if rec.Code != http.StatusOK {
 		t.Errorf("healthy status = %d, want 200", rec.Code)
 	}
 
 	failing := healthStub{err: context.DeadlineExceeded}
-	rec = do(t, httpapi.NewServer(svc, failing, healthStub{}, log).Router(), http.MethodGet, "/healthz", "")
+	rec = do(t, httpapi.NewServer(svc, nil, failing, healthStub{}, log).Router(), http.MethodGet, "/healthz", "")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("degraded status = %d, want 503", rec.Code)
 	}

@@ -172,6 +172,17 @@ func (l *gormLog) Error(ctx context.Context, msg string, args ...any) {
 // for reads and must not be logged as a query failure.
 func isNotFound(err error) bool { return errors.Is(err, gorm.ErrRecordNotFound) }
 
+// isForeignKeyViolation reports a foreign-key failure. The driver translates
+// only SQLITE_CONSTRAINT_FOREIGNKEY, but SQLite implements ON DELETE RESTRICT
+// with an internal trigger and reports the extended code for that instead, so
+// the message is matched as a fallback.
+func isForeignKeyViolation(err error) bool {
+	if errors.Is(err, gorm.ErrForeignKeyViolated) {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "FOREIGN KEY constraint failed")
+}
+
 func (l *gormLog) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	elapsed := time.Since(begin)
 	sql, rows := fc()

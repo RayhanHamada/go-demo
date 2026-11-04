@@ -1,5 +1,25 @@
 basePath: /
 definitions:
+  handlers.CreateOrderRequest:
+    properties:
+      currency:
+        example: USD
+        maxLength: 3
+        minLength: 3
+        type: string
+      customer_id:
+        example: 01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9
+        format: uuid
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/handlers.OrderItemRequest'
+        type: array
+    required:
+    - currency
+    - customer_id
+    - items
+    type: object
   handlers.CreateUserRequest:
     properties:
       display_name:
@@ -54,6 +74,23 @@ definitions:
         example: ok
         type: string
     type: object
+  handlers.ListOrdersResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.OrderResponse'
+        type: array
+      limit:
+        example: 20
+        type: integer
+      offset:
+        example: 0
+        type: integer
+      total:
+        example: 7
+        format: int64
+        type: integer
+    type: object
   handlers.ListUsersResponse:
     properties:
       items:
@@ -70,6 +107,95 @@ definitions:
         example: 42
         format: int64
         type: integer
+    type: object
+  handlers.OrderItemRequest:
+    properties:
+      quantity:
+        example: 2
+        maximum: 1000
+        minimum: 1
+        type: integer
+      sku:
+        example: WIDGET-01
+        maxLength: 40
+        type: string
+      unit_price_cents:
+        example: 1999
+        format: int64
+        minimum: 0
+        type: integer
+    required:
+    - quantity
+    - sku
+    - unit_price_cents
+    type: object
+  handlers.OrderItemResponse:
+    properties:
+      line_total_cents:
+        example: 3998
+        format: int64
+        type: integer
+      quantity:
+        example: 2
+        type: integer
+      sku:
+        example: WIDGET-01
+        type: string
+      unit_price_cents:
+        example: 1999
+        format: int64
+        type: integer
+    type: object
+  handlers.OrderResponse:
+    properties:
+      created_at:
+        example: "2026-11-03T15:47:55.843263Z"
+        type: string
+      currency:
+        example: USD
+        type: string
+      customer_id:
+        example: 01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9
+        format: uuid
+        type: string
+      id:
+        example: 01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9
+        format: uuid
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/handlers.OrderItemResponse'
+        type: array
+      number:
+        example: ORD-01A1A21A6BF6
+        type: string
+      status:
+        enum:
+        - draft
+        - placed
+        - cancelled
+        example: draft
+        type: string
+      total_cents:
+        example: 3998
+        format: int64
+        type: integer
+      updated_at:
+        example: "2026-11-03T15:47:55.843263Z"
+        type: string
+      version:
+        example: 1
+        format: int64
+        type: integer
+    type: object
+  handlers.ReplaceOrderItemsRequest:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/handlers.OrderItemRequest'
+        type: array
+    required:
+    - items
     type: object
   handlers.UpdateUserRequest:
     properties:
@@ -114,9 +240,11 @@ definitions:
 info:
   contact: {}
   description: |-
-    A user CRUD service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.
+    A user and order service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.
 
     Identifiers are UUID v7, so they sort by creation time. Emails are normalised to lower case and unique. Reads are served through a cache that is invalidated on write.
+
+    Orders hold lines with integer money totals and move through a draft → placed → cancelled lifecycle. Writes are conditional: responses carry an `ETag` and accept `If-Match`, so a stale write is rejected with 412 instead of overwriting a concurrent change.
 
     Every response carries an `X-Request-ID` header: send your own to have it echoed, otherwise one is generated. Either way it appears in the server logs, so a failing request is traceable end to end.
   license:
@@ -144,6 +272,332 @@ paths:
       summary: Report dependency health
       tags:
       - Health
+  /v1/orders:
+    get:
+      description: 'Returns one page of orders, newest first, plus the unpaged total.
+        Filters combine: `status` narrows the lifecycle state and `customer_id` narrows
+        the owner.'
+      parameters:
+      - default: 20
+        description: Page size
+        in: query
+        maximum: 100
+        minimum: 1
+        name: limit
+        type: integer
+      - default: 0
+        description: Rows to skip
+        in: query
+        minimum: 0
+        name: offset
+        type: integer
+      - description: Lifecycle state
+        enum:
+        - draft
+        - placed
+        - cancelled
+        in: query
+        name: status
+        type: string
+      - description: Only orders of this customer
+        format: uuid
+        in: query
+        name: customer_id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.ListOrdersResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: List orders
+      tags:
+      - Orders
+    post:
+      consumes:
+      - application/json
+      description: Creates a draft order for an existing active customer. Item quantities
+        are 1–1000, unit prices are minor units, and duplicated SKUs are rejected.
+        The response carries an `ETag` for conditional writes.
+      parameters:
+      - description: Order to create
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.CreateOrderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          headers:
+            ETag:
+              description: Entity tag encoding the order version
+              type: string
+            Location:
+              description: Canonical path of the created order
+              type: string
+          schema:
+            $ref: '#/definitions/handlers.OrderResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Create an order
+      tags:
+      - Orders
+  /v1/orders/{id}:
+    delete:
+      description: 'Removes a draft order and its lines. Placed and cancelled orders
+        are records, not scratch data: deleting them is a 409. Send `If-Match` to
+        make the delete conditional.'
+      parameters:
+      - description: Order identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: ETag from the last read; 412 when stale
+        in: header
+        name: If-Match
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Delete a draft order
+      tags:
+      - Orders
+    get:
+      description: Returns the order and its lines. The `ETag` header carries the
+        version a conditional write must echo back in `If-Match`.
+      parameters:
+      - description: Order identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            ETag:
+              description: Entity tag encoding the order version
+              type: string
+          schema:
+            $ref: '#/definitions/handlers.OrderResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Fetch an order
+      tags:
+      - Orders
+  /v1/orders/{id}/cancel:
+    post:
+      description: Draft or placed → cancelled. Cancellation is terminal; cancelling
+        twice is a 409.
+      parameters:
+      - description: Order identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: ETag from the last read; 412 when stale
+        in: header
+        name: If-Match
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            ETag:
+              description: Entity tag encoding the new order version
+              type: string
+          schema:
+            $ref: '#/definitions/handlers.OrderResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Cancel an order
+      tags:
+      - Orders
+  /v1/orders/{id}/items:
+    put:
+      consumes:
+      - application/json
+      description: Replaces the whole line list of a draft order. A placed or cancelled
+        order is immutable, so this is a 409. Send `If-Match` with the ETag from your
+        read to make the write conditional.
+      parameters:
+      - description: Order identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: New line list
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handlers.ReplaceOrderItemsRequest'
+      - description: ETag from the last read; 412 when stale
+        in: header
+        name: If-Match
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            ETag:
+              description: Entity tag encoding the new order version
+              type: string
+          schema:
+            $ref: '#/definitions/handlers.OrderResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Replace an order's lines
+      tags:
+      - Orders
+  /v1/orders/{id}/place:
+    post:
+      description: 'Draft → placed. Placement is one-way and not idempotent: placing
+        an already placed order is a 409, so a retry cannot be mistaken for a second
+        placement.'
+      parameters:
+      - description: Order identifier (UUID)
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: ETag from the last read; 412 when stale
+        in: header
+        name: If-Match
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          headers:
+            ETag:
+              description: Entity tag encoding the new order version
+              type: string
+          schema:
+            $ref: '#/definitions/handlers.OrderResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.ErrorResponse'
+      summary: Place an order
+      tags:
+      - Orders
   /v1/users:
     get:
       description: Returns one page of users, newest first, plus the unpaged total.

@@ -45,6 +45,476 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/orders": {
+            "get": {
+                "description": "Returns one page of orders, newest first, plus the unpaged total. Filters combine: ` + "`" + `status` + "`" + ` narrows the lifecycle state and ` + "`" + `customer_id` + "`" + ` narrows the owner.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "List orders",
+                "parameters": [
+                    {
+                        "maximum": 100,
+                        "minimum": 1,
+                        "type": "integer",
+                        "default": 20,
+                        "description": "Page size",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "minimum": 0,
+                        "type": "integer",
+                        "default": 0,
+                        "description": "Rows to skip",
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "enum": [
+                            "draft",
+                            "placed",
+                            "cancelled"
+                        ],
+                        "type": "string",
+                        "description": "Lifecycle state",
+                        "name": "status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Only orders of this customer",
+                        "name": "customer_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ListOrdersResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a draft order for an existing active customer. Item quantities are 1–1000, unit prices are minor units, and duplicated SKUs are rejected. The response carries an ` + "`" + `ETag` + "`" + ` for conditional writes.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Create an order",
+                "parameters": [
+                    {
+                        "description": "Order to create",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.CreateOrderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.OrderResponse"
+                        },
+                        "headers": {
+                            "ETag": {
+                                "type": "string",
+                                "description": "Entity tag encoding the order version"
+                            },
+                            "Location": {
+                                "type": "string",
+                                "description": "Canonical path of the created order"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/orders/{id}": {
+            "get": {
+                "description": "Returns the order and its lines. The ` + "`" + `ETag` + "`" + ` header carries the version a conditional write must echo back in ` + "`" + `If-Match` + "`" + `.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Fetch an order",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Order identifier (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.OrderResponse"
+                        },
+                        "headers": {
+                            "ETag": {
+                                "type": "string",
+                                "description": "Entity tag encoding the order version"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Removes a draft order and its lines. Placed and cancelled orders are records, not scratch data: deleting them is a 409. Send ` + "`" + `If-Match` + "`" + ` to make the delete conditional.",
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Delete a draft order",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Order identifier (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ETag from the last read; 412 when stale",
+                        "name": "If-Match",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "Precondition Failed",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/orders/{id}/cancel": {
+            "post": {
+                "description": "Draft or placed → cancelled. Cancellation is terminal; cancelling twice is a 409.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Cancel an order",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Order identifier (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ETag from the last read; 412 when stale",
+                        "name": "If-Match",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.OrderResponse"
+                        },
+                        "headers": {
+                            "ETag": {
+                                "type": "string",
+                                "description": "Entity tag encoding the new order version"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "Precondition Failed",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/orders/{id}/items": {
+            "put": {
+                "description": "Replaces the whole line list of a draft order. A placed or cancelled order is immutable, so this is a 409. Send ` + "`" + `If-Match` + "`" + ` with the ETag from your read to make the write conditional.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Replace an order's lines",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Order identifier (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "New line list",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ReplaceOrderItemsRequest"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "ETag from the last read; 412 when stale",
+                        "name": "If-Match",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.OrderResponse"
+                        },
+                        "headers": {
+                            "ETag": {
+                                "type": "string",
+                                "description": "Entity tag encoding the new order version"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "Precondition Failed",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/orders/{id}/place": {
+            "post": {
+                "description": "Draft → placed. Placement is one-way and not idempotent: placing an already placed order is a 409, so a retry cannot be mistaken for a second placement.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Orders"
+                ],
+                "summary": "Place an order",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Order identifier (UUID)",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ETag from the last read; 412 when stale",
+                        "name": "If-Match",
+                        "in": "header"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.OrderResponse"
+                        },
+                        "headers": {
+                            "ETag": {
+                                "type": "string",
+                                "description": "Entity tag encoding the new order version"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "412": {
+                        "description": "Precondition Failed",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/users": {
             "get": {
                 "description": "Returns one page of users, newest first, plus the unpaged total. The total reflects the same status filter as the page.",
@@ -307,6 +777,33 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "handlers.CreateOrderRequest": {
+            "type": "object",
+            "required": [
+                "currency",
+                "customer_id",
+                "items"
+            ],
+            "properties": {
+                "currency": {
+                    "type": "string",
+                    "maxLength": 3,
+                    "minLength": 3,
+                    "example": "USD"
+                },
+                "customer_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "example": "01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.OrderItemRequest"
+                    }
+                }
+            }
+        },
         "handlers.CreateUserRequest": {
             "type": "object",
             "required": [
@@ -379,6 +876,30 @@ const docTemplate = `{
                 }
             }
         },
+        "handlers.ListOrdersResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.OrderResponse"
+                    }
+                },
+                "limit": {
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "type": "integer",
+                    "example": 0
+                },
+                "total": {
+                    "type": "integer",
+                    "format": "int64",
+                    "example": 7
+                }
+            }
+        },
         "handlers.ListUsersResponse": {
             "type": "object",
             "properties": {
@@ -400,6 +921,126 @@ const docTemplate = `{
                     "type": "integer",
                     "format": "int64",
                     "example": 42
+                }
+            }
+        },
+        "handlers.OrderItemRequest": {
+            "type": "object",
+            "required": [
+                "quantity",
+                "sku",
+                "unit_price_cents"
+            ],
+            "properties": {
+                "quantity": {
+                    "type": "integer",
+                    "maximum": 1000,
+                    "minimum": 1,
+                    "example": 2
+                },
+                "sku": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "example": "WIDGET-01"
+                },
+                "unit_price_cents": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0,
+                    "example": 1999
+                }
+            }
+        },
+        "handlers.OrderItemResponse": {
+            "type": "object",
+            "properties": {
+                "line_total_cents": {
+                    "type": "integer",
+                    "format": "int64",
+                    "example": 3998
+                },
+                "quantity": {
+                    "type": "integer",
+                    "example": 2
+                },
+                "sku": {
+                    "type": "string",
+                    "example": "WIDGET-01"
+                },
+                "unit_price_cents": {
+                    "type": "integer",
+                    "format": "int64",
+                    "example": 1999
+                }
+            }
+        },
+        "handlers.OrderResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-11-03T15:47:55.843263Z"
+                },
+                "currency": {
+                    "type": "string",
+                    "example": "USD"
+                },
+                "customer_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "example": "01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9"
+                },
+                "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "example": "01a1a21a-6bf6-7eb5-9d11-8831cd41c9d9"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.OrderItemResponse"
+                    }
+                },
+                "number": {
+                    "type": "string",
+                    "example": "ORD-01A1A21A6BF6"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "draft",
+                        "placed",
+                        "cancelled"
+                    ],
+                    "example": "draft"
+                },
+                "total_cents": {
+                    "type": "integer",
+                    "format": "int64",
+                    "example": 3998
+                },
+                "updated_at": {
+                    "type": "string",
+                    "example": "2026-11-03T15:47:55.843263Z"
+                },
+                "version": {
+                    "type": "integer",
+                    "format": "int64",
+                    "example": 1
+                }
+            }
+        },
+        "handlers.ReplaceOrderItemsRequest": {
+            "type": "object",
+            "required": [
+                "items"
+            ],
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handlers.OrderItemRequest"
+                    }
                 }
             }
         },
@@ -467,7 +1108,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{"http", "https"},
 	Title:            "gin-clean-arch-demo",
-	Description:      "A user CRUD service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.\n\nIdentifiers are UUID v7, so they sort by creation time. Emails are normalised to lower case and unique. Reads are served through a cache that is invalidated on write.\n\nEvery response carries an `X-Request-ID` header: send your own to have it echoed, otherwise one is generated. Either way it appears in the server logs, so a failing request is traceable end to end.",
+	Description:      "A user and order service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.\n\nIdentifiers are UUID v7, so they sort by creation time. Emails are normalised to lower case and unique. Reads are served through a cache that is invalidated on write.\n\nOrders hold lines with integer money totals and move through a draft → placed → cancelled lifecycle. Writes are conditional: responses carry an `ETag` and accept `If-Match`, so a stale write is rejected with 412 instead of overwriting a concurrent change.\n\nEvery response carries an `X-Request-ID` header: send your own to have it echoed, otherwise one is generated. Either way it appears in the server logs, so a failing request is traceable end to end.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

@@ -39,6 +39,15 @@ func (h *Handler) respondError(c *gin.Context, err error) {
 	case errors.Is(err, domain.ErrEmailTaken):
 		log.Warn().Err(err).Int("status", http.StatusConflict).Msg("request rejected: conflict")
 		c.AbortWithStatusJSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
+	case errors.Is(err, domain.ErrStateConflict):
+		log.Warn().Err(err).Int("status", http.StatusConflict).Msg("request rejected: state conflict")
+		c.AbortWithStatusJSON(http.StatusConflict, ErrorResponse{Error: err.Error()})
+	case errors.Is(err, domain.ErrVersionConflict):
+		log.Warn().Err(err).Int("status", http.StatusPreconditionFailed).Msg("request rejected: stale version")
+		c.AbortWithStatusJSON(http.StatusPreconditionFailed, ErrorResponse{Error: err.Error()})
+	case errors.Is(err, domain.ErrCustomerNotFound):
+		log.Info().Err(err).Int("status", http.StatusNotFound).Msg("request rejected: unknown customer")
+		c.AbortWithStatusJSON(http.StatusNotFound, ErrorResponse{Error: err.Error()})
 	default:
 		log.Error().Err(err).Int("status", http.StatusInternalServerError).Msg("request failed: unexpected error")
 		c.AbortWithStatusJSON(http.StatusInternalServerError, ErrorResponse{Error: "internal error"})

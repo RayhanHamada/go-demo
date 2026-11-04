@@ -7,9 +7,11 @@
 //
 // @title gin-clean-arch-demo
 // @version 1.0.0
-// @description A user CRUD service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.
+// @description A user and order service demonstrating clean architecture: handlers in `internal/adapter/httpapi/handlers`, application services in `internal/usecase`, invariants in `internal/domain`, persistence in `internal/adapter/sqlite`.
 // @description
 // @description Identifiers are UUID v7, so they sort by creation time. Emails are normalised to lower case and unique. Reads are served through a cache that is invalidated on write.
+// @description
+// @description Orders hold lines with integer money totals and move through a draft → placed → cancelled lifecycle. Writes are conditional: responses carry an `ETag` and accept `If-Match`, so a stale write is rejected with 412 instead of overwriting a concurrent change.
 // @description
 // @description Every response carries an `X-Request-ID` header: send your own to have it echoed, otherwise one is generated. Either way it appears in the server logs, so a failing request is traceable end to end.
 // @termsOfService https://opensource.org/licenses/MIT

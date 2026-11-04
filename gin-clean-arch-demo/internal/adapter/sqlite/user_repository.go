@@ -20,7 +20,7 @@ func NewUserRepository(s *Store) *UserRepository { return &UserRepository{db: s.
 
 // Create inserts u, reporting a duplicate address as domain.ErrEmailTaken.
 func (r *UserRepository) Create(ctx context.Context, u domain.User) (domain.User, error) {
-	row := fromDomain(u)
+	row := fromDomainUser(u)
 	if err := r.db.WithContext(ctx).Create(&row).Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return domain.User{}, fmt.Errorf("%w: %s", domain.ErrEmailTaken, u.Email)
@@ -64,10 +64,15 @@ func (r *UserRepository) Update(ctx context.Context, u domain.User) (domain.User
 	return u, nil
 }
 
-// Delete removes the user with id or reports domain.ErrNotFound.
+// Delete removes the user with id or reports domain.ErrNotFound. A user that
+// still owns orders is refused (domain.ErrStateConflict) by the foreign key's
+// ON DELETE RESTRICT, so an order can never be orphaned.
 func (r *UserRepository) Delete(ctx context.Context, id domain.UserID) error {
 	res := r.db.WithContext(ctx).Delete(&UserModel{}, "id = ?", id.String())
 	if res.Error != nil {
+		if isForeignKeyViolation(res.Error) {
+			return fmt.Errorf("%w: user %s still has orders", domain.ErrStateConflict, id)
+		}
 		return fmt.Errorf("sqlite: delete user: %w", res.Error)
 	}
 	if res.RowsAffected == 0 {

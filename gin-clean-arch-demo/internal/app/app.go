@@ -67,8 +67,10 @@ func New(ctx context.Context, cfg config.Config, log zerolog.Logger) (*App, erro
 		return nil, err
 	}
 
-	users := usecase.NewUserService(sqlite.NewUserRepository(store), cacheStore, log, cfg.Cache.TTL)
-	server := httpapi.NewServer(users, store, cacheStore, log).NewHTTPServer(cfg.HTTPAddr)
+	userRepo := sqlite.NewUserRepository(store)
+	users := usecase.NewUserService(userRepo, cacheStore, log, cfg.Cache.TTL)
+	orders := usecase.NewOrderService(sqlite.NewOrderRepository(store), userRepo, cacheStore, log, cfg.Cache.TTL)
+	server := httpapi.NewServer(users, orders, store, cacheStore, log).NewHTTPServer(cfg.HTTPAddr)
 
 	return &App{log: log, server: server, store: store, cache: cacheStore}, nil
 }

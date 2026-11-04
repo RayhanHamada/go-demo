@@ -38,7 +38,7 @@ func readSwagger(t *testing.T) swaggerDoc {
 
 // ginPath converts the router's parameter syntax to the documented form.
 func ginPath(p string) string {
-	return strings.NewReplacer(":id", "{id}", "*any", "{any}").Replace(p)
+	return strings.NewReplacer(":id", "{id}", ":any", "{any}", "*any", "{any}").Replace(p)
 }
 
 // Documentation is generated from annotations, so a handler can be added
@@ -139,6 +139,53 @@ func TestSwaggerSchemasMatchResponses(t *testing.T) {
 		if _, ok := props[field]; !ok {
 			t.Errorf("response field %q is not documented", field)
 		}
+	}
+}
+
+// The order schema must describe the JSON the handlers emit, and the nested
+// line schema must carry the computed totals clients rely on.
+func TestSwaggerOrderSchemaMatchesResponses(t *testing.T) {
+	doc := readSwagger(t)
+
+	order, ok := doc.Definitions["handlers.OrderResponse"]
+	if !ok {
+		t.Fatalf("OrderResponse schema missing; definitions: %v", keysOfDefs(doc.Definitions))
+	}
+	props := order["properties"].(map[string]any)
+	for _, field := range []string{"id", "number", "customer_id", "currency", "status", "items", "total_cents", "version", "created_at", "updated_at"} {
+		if _, ok := props[field]; !ok {
+			t.Errorf("OrderResponse schema missing property %q", field)
+		}
+	}
+	enums, _ := props["status"].(map[string]any)["enum"].([]any)
+	for _, want := range []string{"draft", "placed", "cancelled"} {
+		if !containsAny(enums, want) {
+			t.Errorf("order status enum = %v, missing %q", enums, want)
+		}
+	}
+
+	line, ok := doc.Definitions["handlers.OrderItemResponse"]
+	if !ok {
+		t.Fatalf("OrderItemResponse schema missing")
+	}
+	lineProps := line["properties"].(map[string]any)
+	for _, field := range []string{"sku", "quantity", "unit_price_cents", "line_total_cents"} {
+		if _, ok := lineProps[field]; !ok {
+			t.Errorf("OrderItemResponse schema missing property %q", field)
+		}
+	}
+
+	// A live response must not carry undocumented fields.
+	h := newRouter(t, io.Discard)
+	customerID := createCustomer(t, h, "schema-order@example.com")
+	created, _ := createOrder(t, h, customerID)
+	for field := range created {
+		if _, ok := props[field]; !ok {
+			t.Errorf("order response field %q is not documented", field)
+		}
+	}
+	if got := keysOf(created); len(got) != len(props) {
+		t.Errorf("order response has fields %v, schema documents %v", got, keysOf(props))
 	}
 }
 

@@ -13,18 +13,14 @@ import (
 	"github.com/rs/zerolog"
 
 	"gin-clean-arch-demo/internal/adapter/httpapi/handlers"
-	"gin-clean-arch-demo/internal/domain"
-	"gin-clean-arch-demo/internal/usecase"
 )
 
 // UserService is the subset of the application service the handlers need.
-type UserService interface {
-	CreateUser(ctx context.Context, in usecase.CreateUserInput) (usecase.UserView, error)
-	GetUser(ctx context.Context, id string) (usecase.UserView, error)
-	ListUsers(ctx context.Context, q domain.ListUsersQuery) (domain.Page[usecase.UserView], error)
-	UpdateUser(ctx context.Context, id string, in usecase.UpdateUserInput) (usecase.UserView, error)
-	DeleteUser(ctx context.Context, id string) error
-}
+type UserService = handlers.UserService
+
+// OrderService is the subset of the order application service the handlers
+// need.
+type OrderService = handlers.OrderService
 
 // HealthChecker reports dependency health.
 type HealthChecker interface {
@@ -39,11 +35,11 @@ type Server struct {
 }
 
 // NewServer builds the HTTP layer.
-func NewServer(users UserService, db, cache HealthChecker, logger zerolog.Logger) *Server {
+func NewServer(users UserService, orders OrderService, db, cache HealthChecker, logger zerolog.Logger) *Server {
 	// The logger is kept unscoped: request-scoped lines add layer "http" and
 	// the usecase adds its own, so neither can inherit the other's identity.
 	return &Server{
-		handlers: handlers.New(users, db, cache, logger),
+		handlers: handlers.New(users, orders, db, cache, logger),
 		logger:   logger,
 	}
 }
@@ -63,6 +59,14 @@ func (s *Server) Router() *gin.Engine {
 		v1.GET("/users/:id", s.handlers.GetUser)
 		v1.PATCH("/users/:id", s.handlers.UpdateUser)
 		v1.DELETE("/users/:id", s.handlers.DeleteUser)
+
+		v1.POST("/orders", s.handlers.CreateOrder)
+		v1.GET("/orders", s.handlers.ListOrders)
+		v1.GET("/orders/:id", s.handlers.GetOrder)
+		v1.DELETE("/orders/:id", s.handlers.DeleteOrder)
+		v1.PUT("/orders/:id/items", s.handlers.ReplaceOrderItems)
+		v1.POST("/orders/:id/place", s.handlers.PlaceOrder)
+		v1.POST("/orders/:id/cancel", s.handlers.CancelOrder)
 	}
 	return r
 }
